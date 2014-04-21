@@ -17,14 +17,23 @@ start_link(Name, ClusterMembers) ->
 
 
 init(Args) ->
-    %% Startup the log storage module
+
     io:format("sloop_node_sup:init/1 ~p~n", [Args]),
     [A, Name, ClusterMembers] = Args,
+    %% Startup the log storage module
+    Log = {sloop_log,
+           {sloop_log, start_link, [A]},
+           permanent, 5000, worker, [sloop_log]},
+
     %% Startup the sloop_fsm module, with the correct name
     Fsm = {sloop_fsm,
            {sloop_fsm, start_link, [A, Name, ClusterMembers]},
            permanent, 5000, worker, [sloop_fsm]},
-    {ok, {{one_for_all, 5, 10}, [Fsm]}}.
+
+    {ok, {{one_for_all, 5, 10}, [Log, Fsm]}}.
 
 start_link(A, SupName, Me, Opts) ->
     supervisor:start_link({local, SupName}, ?MODULE, [A, Me, Opts]).
+
+fsm_name(Name) ->
+    list_to_atom(atom_to_list(Name) ++ "_fsm").

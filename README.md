@@ -21,6 +21,14 @@ sloop_kv, sloop_echo = implementations of the state machine
 
 sloop_config = handle dynamic reconfiguration of the RAFT cluster. (Not yet)
 
+sloop_log = persistent store of the commands in the log
 
 sloop_fsm
  - 3 states, follower, candidate, leader.
+
+
+Current State:
+- fixing name for fsm started under sloop_node_sup
+- finish implementation of the leader election
+  - defined vote/request_vote messages
+  - write sending messages to other nodes

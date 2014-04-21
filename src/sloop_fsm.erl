@@ -31,11 +31,12 @@ start_link(Name) ->
     gen_fsm:start_link(?MODULE, [Name], []).
 
 init(Name) ->
-    io:format("init~n", []),
+    io:format("init ~p~n", [Name]),
+    [Id, _] = Name,
     %% Setup timeout for triggering election.
     Timer = gen_fsm:send_event_after(election_timeout(), timeout),
     %% Setup this module's state.
-    NewState = #state{timer=Timer, candidate_id=Name, current_term=0},
+    NewState = #state{timer=Timer, self=Id, current_term=0},
     {ok, follower, NewState}.
 
 handle_event(stop,_, State)->
@@ -62,7 +63,7 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 terminate(_, _, _) ->
     ok.
 
-follower(timeout, #state{current_term=CurrentTerm}=S0) ->
+follower(timeout, #state{current_term=CurrentTerm, self=Id}=S0) ->
     io:format("Election timeout~p ~n", [S0]),
     reset_timer(election_timeout()),
     % increment current term, reset responses, clear leader
@@ -70,8 +71,8 @@ follower(timeout, #state{current_term=CurrentTerm}=S0) ->
                   leader=undefined,
                   responses=dict:new()},
     % request votes
-    io:format("request_votes~n", []),
-    %% request_votes(S1),
+    io:format("~p, request_votes~n", [Id]),
+    request_votes(S1),
     % transition to candidate state
     {next_state, candidate, S1};
 follower(Event, Data) ->
@@ -116,17 +117,17 @@ leader(Event, _From, Data) ->
 %% Private functions
 %%====================================
 
-%% request_votes(#state{members=Members}) ->
-%%     %% TODO Send out RequestVoteRPC to other nodes.
-%%     % Grab current Members from state
-%%     % Build request vote message
-%%     VoteMsg = {request_vote},
+request_votes(#state{members=_Members, self=Id, current_term=CurrentTerm}) ->
+    %% TODO Send out RequestVoteRPC to other nodes.
+    %% TODO Where should last_log_term/index come from???
+    VoteMsg = #request_vote{term=CurrentTerm, candidate_id=Id, last_log_index=0, last_log_term=0},
 
-%%     % Send msg out to members using OTP, gen_fsm:send_event/2 which is an async send to each member
-%%     [N!VoteMsg || N <- Members].
+    % Send msg out to members using OTP, gen_fsm:send_event/2 which is an async send to each member
+    %% [N!VoteMsg || N <- Members].
+    io:format("CandidateId: ~p VoteMsg: ~p~n", [Id, VoteMsg]).
 
 reset_timer(_Period) ->
-    %% TODO implement timer for election timeouts
+    %% TODO implement timer for election timeouts.
     ok.
 
 election_timeout() ->
