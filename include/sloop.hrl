@@ -5,6 +5,6 @@
           timer :: timer:tref(),
 
           candidate_id :: string(),
-
+          responses :: dict(),    %% Responses received from a vote request
           members :: [pid()]      %% Pids of other cluster members
 }).
