@@ -9,6 +9,18 @@ to implement form. For more detailed information on RAFT go to <http://raftconse
 
 state_name/2 function is for async calls, state_name/3 is for sync calls.
 
+Documentation
+=====
+
+Run `rebar doc` and open doc/index.html to view the project documentation.
+
+Startup
+=======
+
+1. Run the shell with reloader. `make shell`
+2. Start the sloop application. `application:start(sloop).`
+3. Add nodes to the cluster. `sloop:start_node(node1, []).`
+
 TODO
 =====
 
@@ -28,7 +40,7 @@ sloop_fsm
 
 
 Current State:
-- fixing name for fsm started under sloop_node_sup
 - finish implementation of the leader election
   - defined vote/request_vote messages
   - write sending messages to other nodes
+- write module to store log entries.

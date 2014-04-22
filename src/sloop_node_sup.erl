@@ -27,7 +27,7 @@ init(Args) ->
 
     %% Startup the sloop_fsm module, with the correct name
     Fsm = {sloop_fsm,
-           {sloop_fsm, start_link, [A, Name, ClusterMembers]},
+           {sloop_fsm, start_link, [fsm_name(A), Name, ClusterMembers]},
            permanent, 5000, worker, [sloop_fsm]},
 
     {ok, {{one_for_all, 5, 10}, [Log, Fsm]}}.
