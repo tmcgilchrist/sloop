@@ -1,28 +1,32 @@
 -module(sloop).
 
 -export([start_node/2,
+         start_cluster/0,
          stop/0,
          set_config/2,
-         op/2]).
+         op/2,
+         get_leader/1]).
 
-
-%% Basically this is a test api into Sloop.
-%% It provides helpful functions for probing and setting up a test cluster of Raft nodes.
-
-start_node(Name, ClusterMembers) ->
+start_cluster() ->
     application:start(sloop),
+    Nodes = [node1, node2, node3],
+    [sloop:start_node(N, Nodes) || N <- Nodes].
+
+%% Starts up a node with Name that knows about ClusterMembers
+start_node(Name, ClusterMembers) ->
     sloop_sup:start_node(Name, ClusterMembers).
 
 stop() ->
     ok.
 
+%% Tells this node about other nodes that exist in the cluster.
 set_config(node1, _OtherNodes) ->
-    %% Tells this node about other nodes that exist in the cluster.
     ok.
 
-op(node1, _Command) ->
-    %% Executes this command against node1.
-    %% Return types,
-    ok,  %% Command was executed successfullly
-    _ = {error, <<"something is wrong">>}, %% Some unforseen error occured, not sure what this would be presently.
-    {leader, node2}. %% Node1 isn't the leader, talk to this node instead.
+%% Executes command against Node.
+op(_Node, _Command) ->
+    ok.
+
+%% Ask node who the leader is.
+get_leader(_Node) ->
+    ok.

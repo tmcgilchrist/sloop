@@ -7,20 +7,13 @@
 %% Supervisor callbacks.
 -export([init/1]).
 
-%% 2 classes of functions
-%% 1. the supervisor callbacks
-%% 2. our own api
-
 start_link() ->
-    io:format("sloop_sup:start_link/0~n", []),
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    io:format("sloop_sup:init/1~n", []),
     {ok, { {one_for_one, 5, 10}, []} }.
 
 start_node(NodeName, ClusterMembers) ->
-    io:format("sloop_sup:start_node/2 NodeName ~p Cluster members: ~p~n", [NodeName, ClusterMembers]),
     % Define the FSM module supervision
     SupervisorName = generate_name(NodeName),
     start_child(SupervisorName, NodeName, ClusterMembers).
@@ -38,8 +31,8 @@ start_child(SupervisorName, Name, Options) ->
     Sup = {SupervisorName,
            {sloop_node_sup, start_link, [Name, Options]},
            permanent, 5000, supervisor, [sloop_node_sup]},
-    io:format("sloop_sup:start_child/3 ~p~n", [Sup]),
     supervisor:start_child(?MODULE, Sup).
 
+%% TODO crappy name, should be node_sup_name
 generate_name(NodeName) ->
     list_to_atom(atom_to_list(NodeName) ++ "_sloop_node_sup").
