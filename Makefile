@@ -1,7 +1,10 @@
 all: compile
 
 compile:
-	rebar compile
+	./rebar compile
 
-shell:
+deps:
+	./rebar get-deps
+
+shell: compile
 	erl -pa ebin -pa include -s reloader
