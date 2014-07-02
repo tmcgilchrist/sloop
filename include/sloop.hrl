@@ -11,7 +11,7 @@
 
 
           candidate_id :: string(), %% Candidate Requesting Vote
-          responses :: dict()       %% Responses received from a vote request
+          responses :: dict:dict()       %% Responses received from a vote request
 
 }).
 

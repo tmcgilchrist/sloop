@@ -73,9 +73,14 @@ follower(timeout, State) ->
     NewState = start_election(State),
     {next_state, candidate, NewState};
 
-follower(Event, Data=#state{self=Id}) ->
+% Heartbeat message
+follower(Msg=#append_entries{leader_id=Leader, entries=[]}, State=#state{self=Id}) ->
+    io:format("~p recieved heart beat from ~p\n ~p\n", [Id, Leader, Msg]),
+    {next_state, follower, State};
+
+follower(Event, State=#state{self=Id}) ->
     unexpected(Event, follower, Id),
-    {next_state, follower, Data}.
+    {next_state, follower, State}.
 
 follower(#request_vote{term=Term, candidate_id=_CandidateId}, _From, State=#state{current_term=CurrentTerm, self=Self}) ->
     case Term > CurrentTerm of
@@ -94,17 +99,14 @@ candidate(timeout, State) ->
     NewState = start_election(State),
     {next_state, candidate, NewState};
 
-candidate(V=#vote{id=From, term=_Term, vote_granted=VoteGranted},
+candidate(#vote{id=From, term=_Term, vote_granted=VoteGranted},
           State=#state{responses=Responses, members=Members, self=Self}) ->
-    io:format("~p candidate: vote: ~p~n", [Self, V]),
-    % Record response
+
     R = dict:store(From, VoteGranted, Responses),
 
-    % Check whether we've won the election
     case election_won(R, Members, Self) of
         % Either transition to leader or wait for more votes
         true ->
-            %% TODO: Assert out leadership here to stop spurious timeouts and re-elections
             %% He who hesitates is lost.
             NewState = assert_leadership(State),
             {next_state, leader, NewState};
@@ -134,10 +136,11 @@ candidate(#request_vote{term=Term, candidate_id=CandidateId}, _From, State=#stat
     {next_state, candidate, State}.
 
 
-leader(timeout, State=#state{self=Id}) ->
-    io:format("~p timeout State: ~p~n", [Id, State]),
-    {next_state, leader, State};
-
+leader(timeout_heartbeat, State=#state{timer=Timer}) ->
+    _ = gen_fsm:cancel_timer(Timer),
+    send_heartbeat(State),
+    NewTimer = gen_fsm:send_event_after(heartbeat_timeout(), timeout_heartbeat),
+    {next_state, leader, State#state{timer=NewTimer}};
 leader(Event, State=#state{self=Id}) ->
     unexpected(Event, leader, Id),
     {next_state, leader, State}.
@@ -168,9 +171,16 @@ election_won(Responses, Members, Self) ->
     io:format("~p Members: ~p Responses: ~p Count: ~p Votes: ~p~n", [Self, Members, Responses, Count, Votes]),
     Count > (length(Members) div 2 + 1).
 
-assert_leadership(State=#state{self=Id, members=Members, current_term=CurrentTerm, timer=Timer}) ->
+assert_leadership(State=#state{self=Id, timer=Timer}) ->
     gen_fsm:cancel_timer(Timer),
 
+    send_heartbeat(State),
+
+    NewTimer = gen_fsm:send_event_after(heartbeat_timeout(), timeout_heartbeat),
+
+    State#state{responses=dict:new(), leader=Id, timer=NewTimer}.
+
+send_heartbeat(#state{self=Id, members=Members, current_term=CurrentTerm}) ->
     % Build no-op append_entries
     LastLogIndex = sloop_log:get_last_log_index(log_name(Id)),
     LastLogTerm = sloop_log:get_last_log_term(log_name(Id)),
@@ -184,9 +194,7 @@ assert_leadership(State=#state{self=Id, members=Members, current_term=CurrentTer
 
     io:format("~p #append_entries{}: ~p members: ~p~n", [Id, Msg, filter(Id, Members)]),
 
-    [sloop_rpc:send(fsm_name(N), Msg) || N <- filter(Id, Members)],
-
-    State#state{responses=dict:new(), leader=Id}.
+    [sloop_rpc:send(fsm_name(N), Msg) || N <- filter(Id, Members)].
 
 request_votes(#state{members=Members, self=Id, current_term=CurrentTerm}) ->
     LastLogIndex = sloop_log:get_last_log_index(log_name(Id)),
@@ -225,6 +233,10 @@ reset_timer() ->
 
 election_timeout() ->
     crypto:rand_uniform(1500, 3000).
+
+heartbeat_timeout() ->
+    crypto:rand_uniform(1500, 3000).
+
 
 unexpected(Msg, State, Id) ->
     io:format("~p received unknown event ~p while in state ~p~n",
