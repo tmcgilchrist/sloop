@@ -143,12 +143,10 @@ candidate(#request_vote{term=Term, candidate_id=CandidateId}, _From, State=#stat
     {next_state, candidate, State}.
 
 
-leader(timeout_heartbeat, State=#state{timer=Timer}) ->
-    _ = gen_fsm:cancel_timer(Timer),
-    send_heartbeat(State),
-    %% NewTimer = gen_fsm:send_event_after(heartbeat_timeout(), timeout_heartbeat),
-    %% {next_state, leader, State#state{timer=NewTimer}};
-    {next_state, leader, State};
+leader(timeout_heartbeat, State) ->
+    NewTimer = send_heartbeat(State),
+    {next_state, leader, State#state{timer=NewTimer}};
+
 leader(Event, State=#state{self=Id}) ->
     unexpected(Event, leader, Id),
     {next_state, leader, State}.
@@ -179,16 +177,14 @@ election_won(Responses, Members, Self) ->
     io:format("~p Members: ~p Responses: ~p Count: ~p Votes: ~p~n", [Self, Members, dict:to_list(Responses), Count, Votes]),
     Count > (length(Members) div 2 + 1).
 
-assert_leadership(State=#state{self=Id, timer=Timer}) ->
-    gen_fsm:cancel_timer(Timer),
-
-    send_heartbeat(State),
-
-    NewTimer = gen_fsm:send_event_after(heartbeat_timeout(), timeout_heartbeat),
+assert_leadership(State=#state{self=Id}) ->
+    NewTimer = send_heartbeat(State),
 
     State#state{responses=dict:new(), leader=Id, timer=NewTimer}.
 
-send_heartbeat(#state{self=Id, members=Members, current_term=CurrentTerm}) ->
+send_heartbeat(#state{self=Id, members=Members, current_term=CurrentTerm, timer=Timer}) ->
+    gen_fsm:cancel_timer(Timer),
+
     % Build no-op append_entries
     LastLogIndex = sloop_log:get_last_log_index(log_name(Id)),
     LastLogTerm = sloop_log:get_last_log_term(log_name(Id)),
@@ -202,7 +198,9 @@ send_heartbeat(#state{self=Id, members=Members, current_term=CurrentTerm}) ->
 
     io:format("~p #append_entries{}: ~p members: ~p~n", [Id, Msg, filter(Id, Members)]),
 
-    [sloop_rpc:send(fsm_name(N), Msg) || N <- filter(Id, Members)].
+    [sloop_rpc:send(fsm_name(N), Msg) || N <- filter(Id, Members)],
+
+    gen_fsm:send_event_after(heartbeat_timeout(), timeout_heartbeat).
 
 request_votes(#state{members=Members, self=Id, current_term=CurrentTerm}) ->
     LastLogIndex = sloop_log:get_last_log_index(log_name(Id)),
@@ -244,7 +242,6 @@ election_timeout() ->
 
 heartbeat_timeout() ->
     crypto:rand_uniform(1500, 3000).
-
 
 unexpected(Msg, State, Id) ->
     io:format("~p received unknown event ~p while in state ~p~n",

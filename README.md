@@ -23,8 +23,8 @@ TODO
 ====
 
  - send periodic heart beat messages (DONE)
- - implement get_leader API function
- - refactor timeout setup into common functions
+ - implement get_leader API function (DONE)
+ - refactor timeout setup into common functions (DONE)
  -
 
 Components
