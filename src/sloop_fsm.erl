@@ -10,7 +10,7 @@
 
 
 %% API
--export([start/1, start_link/1, start_link/3, send_sync/2, send/2]).
+-export([start/1, start_link/1, start_link/3, send_sync/2, send/2, get_leader/1]).
 
 %% gen_fsm callbacks
 -export([init/1, code_change/4
@@ -38,6 +38,9 @@ send(To, Msg) ->
 send_sync(To, Msg) ->
     gen_fsm:sync_send_event(To, Msg, 100).
 
+get_leader(Node) ->
+    gen_fsm:sync_send_all_state_event(Node, get_leader).
+
 init(Name) ->
     [Id, ClusterMembers] = Name,
     Timer = gen_fsm:send_event_after(election_timeout(), timeout),
@@ -51,6 +54,9 @@ handle_event(_, _, State) ->
     io:format("handle_event~n", []),
     {stop, {error, badmsg}, State}.
 
+
+handle_sync_event(get_leader, _, StateName, State=#state{leader=Leader}) ->
+    {reply, Leader, StateName, State};
 handle_sync_event(_Event, _From, _StateName, State) ->
     io:format("handle_sync_event~n", []),
     {stop, badmsg, State}.
@@ -76,7 +82,8 @@ follower(timeout, State) ->
 % Heartbeat message
 follower(Msg=#append_entries{leader_id=Leader, entries=[]}, State=#state{self=Id}) ->
     io:format("~p recieved heart beat from ~p\n ~p\n", [Id, Leader, Msg]),
-    {next_state, follower, State};
+    NewState = State#state{leader=Leader},
+    {next_state, follower, NewState};
 
 follower(Event, State=#state{self=Id}) ->
     unexpected(Event, follower, Id),
@@ -139,8 +146,9 @@ candidate(#request_vote{term=Term, candidate_id=CandidateId}, _From, State=#stat
 leader(timeout_heartbeat, State=#state{timer=Timer}) ->
     _ = gen_fsm:cancel_timer(Timer),
     send_heartbeat(State),
-    NewTimer = gen_fsm:send_event_after(heartbeat_timeout(), timeout_heartbeat),
-    {next_state, leader, State#state{timer=NewTimer}};
+    %% NewTimer = gen_fsm:send_event_after(heartbeat_timeout(), timeout_heartbeat),
+    %% {next_state, leader, State#state{timer=NewTimer}};
+    {next_state, leader, State};
 leader(Event, State=#state{self=Id}) ->
     unexpected(Event, leader, Id),
     {next_state, leader, State}.
@@ -168,7 +176,7 @@ leader(Event, _From, State=#state{self=Id}) ->
 election_won(Responses, Members, Self) ->
     Count = dict:size(dict:filter(fun(_, Vote) -> Vote end, Responses)),
     Votes = (length(Members) div 2 + 1),
-    io:format("~p Members: ~p Responses: ~p Count: ~p Votes: ~p~n", [Self, Members, Responses, Count, Votes]),
+    io:format("~p Members: ~p Responses: ~p Count: ~p Votes: ~p~n", [Self, Members, dict:to_list(Responses), Count, Votes]),
     Count > (length(Members) div 2 + 1).
 
 assert_leadership(State=#state{self=Id, timer=Timer}) ->

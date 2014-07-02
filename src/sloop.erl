@@ -28,5 +28,8 @@ op(_Node, _Command) ->
     ok.
 
 %% Ask node who the leader is.
-get_leader(_Node) ->
-    ok.
+get_leader(Node) ->
+    sloop_fsm:get_leader(fsm_name(Node)).
+
+fsm_name(Name) ->
+    list_to_atom(atom_to_list(Name) ++ "_fsm").

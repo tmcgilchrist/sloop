@@ -23,6 +23,7 @@ TODO
 ====
 
  - send periodic heart beat messages (DONE)
+ - implement get_leader API function
  - refactor timeout setup into common functions
  -
 
