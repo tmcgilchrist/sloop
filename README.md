@@ -22,10 +22,19 @@ Developing
 TODO
 ====
 
- - send periodic heart beat messages (DONE)
- - implement get_leader API function (DONE)
- - refactor timeout setup into common functions (DONE)
- -
+ - rename message records to match the original paper more closely
+ - leader log replication (*)
+   - spec out the api for sloop_log
+   - default implementation using in memory storage
+   - sending / receiving replicate RPC messages
+ - eunit/ct tests on fsm for leader election
+   - leader election from startup
+   - leader election from network partition or server failure
+ - refactor out persistent state into it's own module
+ - investigate example state machines and how they'll hook into RAFT
+ - property based testing with properl or ??
+ - cluster reconfiguration
+ - log compaction
 
 Components
 =====
