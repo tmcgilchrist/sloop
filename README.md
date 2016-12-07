@@ -1,6 +1,6 @@
 sloop
 =====
-
+[![Build Status](https://travis-ci.org/tmcgilchrist/sloop.svg?branch=master)](https://travis-ci.org/tmcgilchrist/sloop)
 Documentation
 =====
 
@@ -14,9 +14,18 @@ Compiling
 
 Developing
 =======
+sloop uses `rebar3` to compile, so it needs to be available on your path.
 
-1. Run the shell with reloader. `make shell`
-2. Start the sloop test cluster of 3 nodes. `sloop:start_cluster().`
+
+``` shell
+# Compiling
+rebar3 compile
+```
+
+``` shell
+# Running
+rebar3 shell
+```
 
 
 TODO
