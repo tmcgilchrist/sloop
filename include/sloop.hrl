@@ -1,3 +1,4 @@
+
 %% State for the sloop_fsm server
 -record(state, {
           leader :: term(),
@@ -9,9 +10,9 @@
           self         :: term(),         %% This node's id, registered name
           members = [] :: [pid()],        %% Pids of other cluster members
 
-
-          candidate_id :: string(), %% Candidate Requesting Vote
-          responses :: dict:dict()       %% Responses received from a vote request
+          log_entry, %%:: log_entry(),       %% Current Log Entry being replicated
+          candidate_id :: string(),       %% Candidate Requesting Vote
+          responses :: dict:dict()        %% Responses received from a vote request or append_entries
 
 }).
 

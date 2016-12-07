@@ -5,12 +5,15 @@
 -behaviour(gen_fsm).
 
 -include("sloop.hrl").
+-include("sloop_log.hrl").
 
 -export([filter/2]).
 
 
 %% API
--export([start/1, start_link/1, start_link/3, send_sync/2, send/2, get_leader/1]).
+-export([start/1, start_link/1, start_link/3, send_sync/2, send/2,
+         op/2,
+         get_leader/1]).
 
 %% gen_fsm callbacks
 -export([init/1, code_change/4
@@ -41,6 +44,11 @@ send_sync(To, Msg) ->
 get_leader(Node) ->
     gen_fsm:sync_send_all_state_event(Node, get_leader).
 
+op(Node, Command) ->
+    %% TODO is there a race issue with sending many op commands to the leader without waiting for a response?
+    %%
+    gen_fsm:sync_send_event(Node, {op, Command}).
+
 init(Name) ->
     [Id, ClusterMembers] = Name,
     Timer = gen_fsm:send_event_after(election_timeout(), timeout),
@@ -49,11 +57,9 @@ init(Name) ->
 
 handle_event(stop,_, State)->
     {stop, normal, State};
-
 handle_event(_, _, State) ->
     io:format("handle_event~n", []),
     {stop, {error, badmsg}, State}.
-
 
 handle_sync_event(get_leader, _, StateName, State=#state{leader=Leader}) ->
     {reply, Leader, StateName, State};
@@ -78,13 +84,30 @@ terminate(_, _, _) ->
 follower(timeout, State) ->
     NewState = start_election(State),
     {next_state, candidate, NewState};
-
 % Heartbeat message
 follower(Msg=#append_entries{leader_id=Leader, entries=[]}, State=#state{self=Id}) ->
     io:format("~p recieved heart beat from ~p\n ~p\n", [Id, Leader, Msg]),
     NewState = State#state{leader=Leader},
     {next_state, follower, NewState};
+follower(Msg=#append_entries{leader_id=Leader, term=Term, entries=Entries}, State=#state{self=Id, current_term=CurrentTerm}) ->
+    io:format("~p recieved entries ~p from ~p\n ~p\n", [Id, Entries, Leader, Msg]),
+    case Term < CurrentTerm of
+        true ->
+            % 1. Reply false if term < currentTerm
+            Response = #append_response{id=Id, term=Term, success=false},
+            {reply, Response, follower, State};
+        false ->
+            sloop_log:get_entry_at(1),
+            {reply, #append_response{id=Id, term=Term, success=false}, follower, State}
+    end;
+    % TODO
 
+    % 2. Reply false if log doesn't contain an entry at prevLogIndex, whose term matches prevLogTerm
+    % 3. If an existing entry conflicts with a new one (same index but different terms), delete the existing entry and all that follow it.
+    % 4. Append any new entries not already in the log
+    %
+follower({op, _Command}, State) ->
+    {reply, {not_leader}, follower, State};
 follower(Event, State=#state{self=Id}) ->
     unexpected(Event, follower, Id),
     {next_state, follower, State}.
@@ -105,7 +128,6 @@ follower(#request_vote{term=Term, candidate_id=_CandidateId}, _From, State=#stat
 candidate(timeout, State) ->
     NewState = start_election(State),
     {next_state, candidate, NewState};
-
 candidate(#vote{id=From, term=_Term, vote_granted=VoteGranted},
           State=#state{responses=Responses, members=Members, self=Self}) ->
 
@@ -120,12 +142,12 @@ candidate(#vote{id=From, term=_Term, vote_granted=VoteGranted},
         false ->
             {next_state, candidate, State#state{responses=R}}
     end;
-
 candidate(#append_entries{term=Term, leader_id=Leader}, State=#state{self=Id,timer=Timer}) ->
     io:format("~p stepping down for ~p term: ~p~n", [Id, Leader, Term]),
     gen_fsm:cancel_timer(Timer),            % Cancel timeouts while leader
     {next_state, follower, State};
-
+candidate({op, _Command}, State) ->
+    {reply, {not_leader}, follower, State};
 candidate(Event, State=#state{self=Self}) ->
     io:format("~p candidate event: ~p data: ~p~n", [Self, Event, State]),
     {next_state, candidate, State}.
@@ -143,10 +165,30 @@ candidate(#request_vote{term=Term, candidate_id=CandidateId}, _From, State=#stat
     {next_state, candidate, State}.
 
 
+
 leader(timeout_heartbeat, State) ->
     NewTimer = send_heartbeat(State),
     {next_state, leader, State#state{timer=NewTimer}};
+leader({op, Command}, State=#state{self=Id,current_term=CurrentTerm,members=Members}) ->
+    % 1. append entry to our sloop_store
+    LogEntry = build_log_entry(State, Command),
+    ok = sloop_log:push_entry(log_name(Id), LogEntry),
 
+    NewState = State#state{responses=dict:new(), log_entry=LogEntry},
+
+    % 2. Issue appendRPC for this entry
+    LastLogIndex = sloop_log:get_last_log_index(log_name(Id)),
+    LastLogTerm = sloop_log:get_last_log_term(log_name(Id)),
+    CommitIndex = sloop_log:get_commit_index(log_name(Id)),
+    Msg = #append_entries{term=CurrentTerm,
+                          leader_id=Id,
+                          prev_log_index=LastLogIndex,
+                          prev_log_term=LastLogTerm,
+                          entries = [LogEntry],
+                          commit_index = CommitIndex},
+    io:format("~p #append_entries{}: ~p members: ~p~n", [Id, Msg, filter(Id, Members)]),
+    [sloop_rpc:send(fsm_name(N), Msg) || N <- filter(Id, Members)],
+    {next_state, leader, NewState};
 leader(Event, State=#state{self=Id}) ->
     unexpected(Event, leader, Id),
     {next_state, leader, State}.
@@ -162,6 +204,23 @@ leader(#request_vote{term=Term, candidate_id=CandidateId}, _From, State=#state{c
             sloop_fsm:send(fsm_name(CandidateId), Vote),
             {next_state, leader, State}
     end;
+leader(#append_response{id=Id, term=_Term, success=true}, From, State=#state{log_entry=LogEntry,members=Members,responses=Responses}) ->
+    % 3. Wait for a Majority of responses
+    R = dict:store(From, true, Responses),
+    case majority_responses(R, Members) of
+        true ->
+            % 4. Apply entry to log state machine
+            {ok, _CommitIndex} = sloop_log:commit_entry(log_name(Id), LogEntry),
+
+            % 5. Clear replication state
+            NewState=State#state{log_entry=null,responses=null},
+            {next_state, leader, NewState};
+        false ->
+            {next_state, leader, State}
+    end;
+
+
+
 
 leader(Event, _From, State=#state{self=Id}) ->
     unexpected(Event, leader, Id),
@@ -170,6 +229,15 @@ leader(Event, _From, State=#state{self=Id}) ->
 %%====================================
 %% Private functions
 %%====================================
+
+build_log_entry(#state{current_term=CurrentTerm,self=Id}, Command) ->
+    LastLogIndex = sloop_log:get_last_log_index(log_name(Id)), % TODO factor this out, don't need 2 gen_server calls
+    #log_entry{index=LastLogIndex+1,term=CurrentTerm,command=Command}.
+
+majority_responses(Responses, Members) ->
+    %% TODO should this be a majority of followers or majority including leader??
+    Count = dict:size(dict:filter(fun(_, Vote) -> Vote end, Responses)),
+    Count > (length(Members) div 2 + 1).
 
 election_won(Responses, Members, Self) ->
     Count = dict:size(dict:filter(fun(_, Vote) -> Vote end, Responses)),
