@@ -2,7 +2,9 @@
 
 -behaviour(supervisor).
 
--export([start_link/2, init/1]).
+-export([ start_link/2
+        , init/1
+        ]).
 
 start_link(Name, ClusterMembers) ->
     SupervisorName = list_to_atom(atom_to_list(Name) ++ "_sup"),

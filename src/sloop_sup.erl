@@ -20,8 +20,9 @@ start_node(NodeName, ClusterMembers) ->
 
 stop_node(NodeName) ->
     %% Brutal shutdown!!
-    ok = supervisor:terminate_child(?MODULE, NodeName),
-    supervisor:delete_child(?MODULE, NodeName).
+    SupervisorName = generate_name(NodeName),
+    ok = supervisor:terminate_child(?MODULE, SupervisorName),
+    supervisor:delete_child(?MODULE, SupervisorName).
 
 %% ================================================================================
 %% Private

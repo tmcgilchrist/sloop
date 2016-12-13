@@ -21,7 +21,7 @@ start_node(Name, ClusterMembers) ->
 
 stop() ->
     Nodes = [node1, node2, node3],
-    [sloop:stop_node(N, Nodes) || N <- Nodes].
+    [stop_node(N) || N <- Nodes].
 
 stop_node(Name) ->
     sloop_sup:stop_node(Name).

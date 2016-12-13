@@ -3,9 +3,9 @@
   {description, ""},
   {vsn, "0.1"},
   {registered, []},
-  {applications, [
-                  kernel,
-                  stdlib
+  {applications, [ lager
+                 , kernel
+                 , stdlib
                  ]},
   {mod, { sloop_app, []}},
   {env, []}

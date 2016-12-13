@@ -1,8 +1,5 @@
-/ebin/*
-/doc/*
-logs
-_build
-**/*.beam
-.eunit
+log
 .DS_Store
+.eunit
 .rebar
+_build

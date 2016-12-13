@@ -1,6 +1,6 @@
 -module(sloop_rpc).
 
--include("sloop.hrl").
+-include("../include/sloop.hrl").
 
 -export([send/2]).
 
@@ -13,6 +13,6 @@ send(NodeId, #request_vote{candidate_id=From}=Msg) ->
                           sloop_fsm:send(From, Reply);
                       Error ->
                           %% TODO ignoring error here for now, watch as it bites me later.
-                          io:format("error sending: ~p~n", [Error])
+                          lager:error("error sending: ~p~n", [Error])
                   end
           end).

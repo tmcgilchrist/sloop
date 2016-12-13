@@ -12,13 +12,13 @@
 %% -type log_entries() :: [log_entry()].
 
 %% API
--export([start_link/1,
-         get_last_log_index/1,
-         get_last_log_term/1,
-         get_commit_index/1,
-         push_entry/2,
-         commit_entry/2,
-         entry_at/3
+-export([ start_link/1
+        , get_last_log_index/1
+        , get_last_log_term/1
+        , get_commit_index/1
+        , push_entry/2
+        , commit_entry/2
+        , entry_at/3
         ]).
 
 %% gen_server callbacks
@@ -93,7 +93,6 @@ handle_call({commit_entry, LogEntry}, _From, State) ->
     {reply, {ok, Index}, NewState};
 handle_call({entry_at, Index, LogEntry}, _From, #state{dict=Dict}=State) ->
     [A] = orddict:fetch(Index, Dict),
-    io:format("~n~nA: ~p~n", [A]),
     case A of
         LogEntry ->
             {reply, true, State};
@@ -103,12 +102,16 @@ handle_call({entry_at, Index, LogEntry}, _From, #state{dict=Dict}=State) ->
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
+
 handle_cast(_Msg, State) ->
     {noreply, State}.
+
 handle_info(_Info, State) ->
     {noreply, State}.
+
 terminate(_Reason, _State) ->
     ok.
+
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 

@@ -4,26 +4,32 @@
 
 -behaviour(gen_fsm).
 
--include("sloop.hrl").
--include("sloop_log.hrl").
-
--export([filter/2]).
-
+-include("../include/sloop.hrl").
 
 %% API
--export([start/1, start_link/1, start_link/3, send_sync/2, send/2,
-         op/2,
-         get_leader/1]).
+-export([ start/1
+        , start_link/1
+        , start_link/3
+        , send_sync/2
+        , send/2
+        , op/2
+        , get_leader/1 ]).
 
 %% gen_fsm callbacks
--export([init/1, code_change/4
-         , handle_event/3, handle_info/3
-         , handle_sync_event/4, terminate/3]).
+-export([ init/1
+        , code_change/4
+        , handle_event/3
+        , handle_info/3
+        , handle_sync_event/4
+        , terminate/3 ]).
 
 %% FSM state callbacks
--export([follower/2, follower/3
-         , candidate/2, candidate/3
-         , leader/2, leader/3
+-export([ follower/2
+        , follower/3
+        , candidate/2
+        , candidate/3
+        , leader/2
+        , leader/3
         ]).
 
 start(Name) ->
@@ -58,18 +64,19 @@ init(Name) ->
 handle_event(stop,_, State)->
     {stop, normal, State};
 handle_event(_, _, State) ->
-    io:format("handle_event~n", []),
+    lager:debug("handle_event~n", []),
     {stop, {error, badmsg}, State}.
 
 handle_sync_event(get_leader, _, StateName, State=#state{leader=Leader}) ->
     {reply, Leader, StateName, State};
 handle_sync_event(_Event, _From, _StateName, State) ->
-    io:format("handle_sync_event~n", []),
+    lager:debug("handle_sync_event~n", []),
     {stop, badmsg, State}.
 
 handle_info(_, StateName, State) ->
     %% Triggers state change
-    NewState = State,  %% Update internal fsm state.
+    %% Update internal fsm state.
+    NewState = State,
     {next_state, StateName, NewState}.
 
 code_change(_OldVsn, StateName, State, _Extra) ->
@@ -81,16 +88,20 @@ terminate(_, _, _) ->
 %% =========================================================================================
 %% States
 %% =========================================================================================
-follower(timeout, State) ->
+follower( timeout, State ) ->
     NewState = start_election(State),
     {next_state, candidate, NewState};
-% Heartbeat message
-follower(Msg=#append_entries{leader_id=Leader, entries=[]}, State=#state{self=Id}) ->
-    io:format("~p recieved heart beat from ~p\n ~p\n", [Id, Leader, Msg]),
+
+follower( Msg=#append_entries{leader_id=Leader, entries=[]}
+        , State=#state{self=Id} ) ->
+    % Heartbeat message
+    lager:debug("~p received heart beat from ~p\n ~p\n", [Id, Leader, Msg]),
     NewState = State#state{leader=Leader},
     {next_state, follower, NewState};
-follower(Msg=#append_entries{leader_id=Leader, term=Term, entries=Entries}, State=#state{self=Id, current_term=CurrentTerm}) ->
-    io:format("~p recieved entries ~p from ~p\n ~p\n", [Id, Entries, Leader, Msg]),
+
+follower( Msg=#append_entries{leader_id=Leader, term=Term, entries=Entries}
+        , State=#state{self=Id, current_term=CurrentTerm} ) ->
+    lager:debug("~p recieved entries ~p from ~p\n ~p\n", [Id, Entries, Leader, Msg]),
     case Term < CurrentTerm of
         true ->
             % 1. Reply false if term < currentTerm
@@ -106,21 +117,24 @@ follower(Msg=#append_entries{leader_id=Leader, term=Term, entries=Entries}, Stat
     % 3. If an existing entry conflicts with a new one (same index but different terms), delete the existing entry and all that follow it.
     % 4. Append any new entries not already in the log
     %
-follower({op, _Command}, State) ->
+follower( {op, _Command}, State ) ->
     {reply, {not_leader}, follower, State};
-follower(Event, State=#state{self=Id}) ->
+follower( Event, State=#state{self=Id} ) ->
     unexpected(Event, follower, Id),
     {next_state, follower, State}.
 
-follower(#request_vote{term=Term, candidate_id=_CandidateId}, _From, State=#state{current_term=CurrentTerm, self=Self}) ->
+-spec (follower(request_vote(), term(), state()) -> {reply, vote(), atom(), state()}).
+follower(#request_vote{term=Term, candidate_id=_CandidateId}
+        , _From
+        , State=#state{current_term=CurrentTerm, self=Self} ) ->
     case Term > CurrentTerm of
         true ->
             Vote = #vote{term=CurrentTerm, vote_granted=true, id=Self},
-            io:format("~p #vote: ~p~n", [Self, Vote]),
+            lager:debug("~p #vote: ~p~n", [Self, Vote]),
             {reply, Vote, follower, State};
         false ->
             Vote = #vote{term=CurrentTerm, vote_granted=false, id=Self},
-            io:format("~p #vote: ~p~n", [Self, Vote]),
+            lager:debug("~p #vote: ~p~n", [Self, Vote]),
             {reply, Vote, follower, State}
     end.
 
@@ -143,13 +157,13 @@ candidate(#vote{id=From, term=_Term, vote_granted=VoteGranted},
             {next_state, candidate, State#state{responses=R}}
     end;
 candidate(#append_entries{term=Term, leader_id=Leader}, State=#state{self=Id,timer=Timer}) ->
-    io:format("~p stepping down for ~p term: ~p~n", [Id, Leader, Term]),
+    lager:debug("~p stepping down for ~p term: ~p~n", [Id, Leader, Term]),
     gen_fsm:cancel_timer(Timer),            % Cancel timeouts while leader
     {next_state, follower, State};
-candidate({op, _Command}, State) ->
+candidate(#op{command=_Command}, State) ->
     {reply, {not_leader}, follower, State};
 candidate(Event, State=#state{self=Self}) ->
-    io:format("~p candidate event: ~p data: ~p~n", [Self, Event, State]),
+    lager:debug("~p candidate event: ~p data: ~p~n", [Self, Event, State]),
     {next_state, candidate, State}.
 
 candidate(#request_vote{term=Term, candidate_id=CandidateId}, _From, State=#state{self=Self, current_term=CurrentTerm}) ->
@@ -163,8 +177,6 @@ candidate(#request_vote{term=Term, candidate_id=CandidateId}, _From, State=#stat
             sloop_fsm:send(fsm_name(CandidateId), Vote)
     end,
     {next_state, candidate, State}.
-
-
 
 leader(timeout_heartbeat, State) ->
     NewTimer = send_heartbeat(State),
@@ -186,7 +198,7 @@ leader({op, Command}, State=#state{self=Id,current_term=CurrentTerm,members=Memb
                           prev_log_term=LastLogTerm,
                           entries = [LogEntry],
                           commit_index = CommitIndex},
-    io:format("~p #append_entries{}: ~p members: ~p~n", [Id, Msg, filter(Id, Members)]),
+    lager:debug("~p #append_entries{}: ~p members: ~p~n", [Id, Msg, filter(Id, Members)]),
     [sloop_rpc:send(fsm_name(N), Msg) || N <- filter(Id, Members)],
     {next_state, leader, NewState};
 leader(Event, State=#state{self=Id}) ->
@@ -196,7 +208,7 @@ leader(Event, State=#state{self=Id}) ->
 leader(#request_vote{term=Term, candidate_id=CandidateId}, _From, State=#state{current_term=CurrentTerm, self=Id}) ->
     case Term > CurrentTerm of
         true ->
-            io:format("~p Stepping down as leader.~n", [Id]),
+            lager:debug("~p Stepping down as leader.~n", [Id]),
             {next_state, follower, State};
          false ->
             % Respond with current term and no_vote
@@ -219,9 +231,6 @@ leader(#append_response{id=Id, term=_Term, success=true}, From, State=#state{log
             {next_state, leader, State}
     end;
 
-
-
-
 leader(Event, _From, State=#state{self=Id}) ->
     unexpected(Event, leader, Id),
     {next_state, leader, State}.
@@ -231,7 +240,8 @@ leader(Event, _From, State=#state{self=Id}) ->
 %%====================================
 
 build_log_entry(#state{current_term=CurrentTerm,self=Id}, Command) ->
-    LastLogIndex = sloop_log:get_last_log_index(log_name(Id)), % TODO factor this out, don't need 2 gen_server calls
+    % TODO factor this out, don't need 2 gen_server calls
+    LastLogIndex = sloop_log:get_last_log_index(log_name(Id)),
     #log_entry{index=LastLogIndex+1,term=CurrentTerm,command=Command}.
 
 majority_responses(Responses, Members) ->
@@ -242,12 +252,11 @@ majority_responses(Responses, Members) ->
 election_won(Responses, Members, Self) ->
     Count = dict:size(dict:filter(fun(_, Vote) -> Vote end, Responses)),
     Votes = (length(Members) div 2 + 1),
-    io:format("~p Members: ~p Responses: ~p Count: ~p Votes: ~p~n", [Self, Members, dict:to_list(Responses), Count, Votes]),
+    lager:debug("~p Members: ~p Responses: ~p Count: ~p Votes: ~p~n", [Self, Members, dict:to_list(Responses), Count, Votes]),
     Count > (length(Members) div 2 + 1).
 
 assert_leadership(State=#state{self=Id}) ->
     NewTimer = send_heartbeat(State),
-
     State#state{responses=dict:new(), leader=Id, timer=NewTimer}.
 
 send_heartbeat(#state{self=Id, members=Members, current_term=CurrentTerm, timer=Timer}) ->
@@ -264,7 +273,7 @@ send_heartbeat(#state{self=Id, members=Members, current_term=CurrentTerm, timer=
                           entries = [],
                           commit_index = CommitIndex},
 
-    io:format("~p #append_entries{}: ~p members: ~p~n", [Id, Msg, filter(Id, Members)]),
+    lager:debug("~p #append_entries{}: ~p members: ~p~n", [Id, Msg, filter(Id, Members)]),
 
     [sloop_rpc:send(fsm_name(N), Msg) || N <- filter(Id, Members)],
 
@@ -276,7 +285,7 @@ request_votes(#state{members=Members, self=Id, current_term=CurrentTerm}) ->
 
     VoteMsg = #request_vote{term=CurrentTerm, candidate_id=Id, last_log_index=LastLogIndex, last_log_term=LastLogTerm},
 
-    io:format("~p #request_vote{}: ~p members: ~p~n", [Id, VoteMsg, Members]),
+    lager:debug("~p #request_vote{}: ~p members: ~p~n", [Id, VoteMsg, Members]),
     [sloop_rpc:send(fsm_name(N), VoteMsg) || N <- filter(Id, Members)].
 
 filter(_, []) ->
@@ -290,7 +299,7 @@ filter(Name, [Head|Tail]) ->
     end.
 
 start_election(State = #state{current_term=CurrentTerm, self=Id}) ->
-    io:format("~p Election timeout~p ~n", [Id, State]),
+    lager:debug("~p Election timeout~p ~n", [Id, State]),
     Timer = reset_timer(),
     % increment current term, reset responses, clear leader
     R = dict:store(Id, true, dict:new()),
@@ -298,7 +307,7 @@ start_election(State = #state{current_term=CurrentTerm, self=Id}) ->
                   leader=undefined,
                   responses=R,
                   timer=Timer},
-    io:format("~p, request_votes~n", [Id]),
+    lager:debug("~p, request_votes~n", [Id]),
     request_votes(NewState),
     NewState.
 
@@ -312,7 +321,7 @@ heartbeat_timeout() ->
     crypto:rand_uniform(1500, 3000).
 
 unexpected(Msg, State, Id) ->
-    io:format("~p received unknown event ~p while in state ~p~n",
+    lager:debug("~p received unknown event ~p while in state ~p~n",
               [Id, Msg, State]).
 
 fsm_name(Name) ->
