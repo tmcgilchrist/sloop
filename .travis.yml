@@ -2,6 +2,7 @@ sudo: false
 language: erlang
 notifications:
   email: true
+script: "./rebar3 ct"
 otp_release:
   - 19.0
   - 18.3
